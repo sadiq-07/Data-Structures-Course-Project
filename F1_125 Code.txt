@@ -1,0 +1,446 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <limits.h>
+#include <time.h>
+#include <math.h>
+
+#define MAX_NODES 100
+#define NO_PARENT -1
+#define MAX_COMPLAINTS 5
+
+struct Graph {
+    int vertices;
+    int** adjacencyMatrix;
+};
+
+struct Visited {
+    int* visited;
+};
+
+struct Complaint {
+    char customerName[50];
+    char complaint[200];
+    char companyName[50];
+};
+
+struct ElectricityCompany {
+    char name[50];
+    char type[20];
+    float electricityProduced;
+};
+
+struct City {
+    char name[50];
+    float powerConsumed;
+    float citySize;
+};
+
+struct ElectricityCompany companies[MAX_NODES];
+int kmpSearchCompany(const char* companyName, struct ElectricityCompany companies[], int n);
+int kmpSearch(const char* text, const char* pattern);
+void computeLPSArray(const char* pattern, int m, int lps[]);
+
+// Function to create a new graph
+struct Graph* createGraph(int vertices) {
+    struct Graph* graph = (struct Graph*)malloc(sizeof(struct Graph));
+    graph->vertices = vertices;
+
+    graph->adjacencyMatrix = (int**)malloc(vertices * sizeof(int*));
+    for (int i = 0; i < vertices; i++) {
+        graph->adjacencyMatrix[i] = (int*)malloc(vertices * sizeof(int));
+        for (int j = 0; j < vertices; j++) {
+            graph->adjacencyMatrix[i][j] = 0;
+        }
+    }
+
+    return graph;
+}
+
+// Function to add an edge to the graph
+void addEdge(struct Graph* graph, int src, int dest) {
+    graph->adjacencyMatrix[src][dest] = 1;
+    graph->adjacencyMatrix[dest][src] = 1; // For undirected graph
+}
+
+// Function to initialize the visited array
+struct Visited* createVisitedArray(int size) {
+    struct Visited* visitedArray = (struct Visited*)malloc(sizeof(struct Visited));
+    visitedArray->visited = (int*)malloc(size * sizeof(int));
+
+    for (int i = 0; i < size; i++) {
+        visitedArray->visited[i] = 0;
+    }
+
+    return visitedArray;
+}
+
+// Function to read data for electricity companies from a file
+void readDataFromFile(struct ElectricityCompany companies[], int n, const char* filename) {
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        perror("Error opening file");
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < n; i++) {
+        if (fscanf(file, "%s %s %f", companies[i].name, companies[i].type, &companies[i].electricityProduced) != 3) {
+            fprintf(stderr, "Error reading data from file\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    fclose(file);
+}
+
+// Function to write data for electricity companies to a file
+void writeDataToFile(struct ElectricityCompany companies[], int n, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        perror("Error opening file");
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < n; i++) {
+        fprintf(file, "%s %s %.2f\n", companies[i].name, companies[i].type, companies[i].electricityProduced);
+    }
+
+    fclose(file);
+}
+
+// Function to write log to file
+void writeLog(const char* message) {
+    FILE* logFile = fopen("log.txt", "a");
+    if (logFile == NULL) {
+        printf("Error opening log file.\n");
+        exit(1);
+    }
+
+    time_t currentTime;
+    struct tm* localTime;
+
+    time(&currentTime);
+    localTime = localtime(&currentTime);
+
+    fprintf(logFile, "[%02d:%02d:%02d] %s\n", localTime->tm_hour, localTime->tm_min, localTime->tm_sec, message);
+
+    fclose(logFile);
+}
+
+// Function to read data for electricity companies
+void readData(struct ElectricityCompany companies[], int n) {
+    for (int i = 0; i < n; i++) {
+        printf("Enter details for Company %d:\n", i + 1);
+        printf("Name: ");
+        scanf("%s", companies[i].name);
+        printf("Type (hydro, solar, etc.): ");
+        scanf("%s", companies[i].type);
+        printf("Electricity Produced: ");
+        scanf("%f", &companies[i].electricityProduced);
+
+        // Log the company information
+        char logMessage[100];
+        sprintf(logMessage, "Company %s added. Type: %s, Electricity Produced: %.2f",
+                companies[i].name, companies[i].type, companies[i].electricityProduced);
+        writeLog(logMessage);
+    }
+}
+
+// Function to read data for cities
+void readCityData(struct City cities[], int n) {
+    for (int i = 0; i < n; i++) {
+        printf("Enter details for City %d:\n", i + 1);
+        printf("Name: ");
+        scanf("%s", cities[i].name);
+        printf("Power Consumed: ");
+        scanf("%f", &cities[i].powerConsumed);
+        printf("City size:");
+        scanf("%f", &cities[i].citySize);
+    }
+}
+
+// Function to print city data
+void printCityData(struct City cities[], int nCities) {
+    printf("City Data:\n");
+
+    for (int i = 0; i < nCities; i++) {
+        printf("City: %s, Power Consumed: %.2f, City Size: %.2f\n", cities[i].name, cities[i].powerConsumed, cities[i].citySize);
+    }
+}
+
+// Depth-First Search function
+void dfs(struct Graph* graph, struct Visited* visited, int vertex) {
+    visited->visited[vertex] = 1;
+    printf("%d ", vertex);
+
+    for (int i = 0; i < graph->vertices; i++) {
+        if (graph->adjacencyMatrix[vertex][i] && !visited->visited[i]) {
+            dfs(graph, visited, i);
+        }
+    }
+}
+
+// Function to perform DFS traversal
+void dfsTraversal(struct Graph* graph, int startVertex) {
+    struct Visited* visited = createVisitedArray(graph->vertices);
+    printf("DFS Traversal starting from vertex %d:\n", startVertex);
+    dfs(graph, visited, startVertex);
+    printf("\n");
+
+    // Free allocated memory
+    free(visited->visited);
+    free(visited);
+}
+
+// Function to free the memory allocated for the graph
+void freeGraph(struct Graph* graph) {
+    for (int i = 0; i < graph->vertices; i++) {
+        free(graph->adjacencyMatrix[i]);
+    }
+    free(graph->adjacencyMatrix);
+    free(graph);
+}
+
+// Function to print shortest path from source to currentVertex using parents array
+void printPath(int currentVertex, int parents[]) {
+    if (currentVertex == NO_PARENT)
+        return;
+    printPath(parents[currentVertex], parents);
+    printf("%d ", currentVertex);
+}
+
+// A utility function to print the constructed distances array and shortest paths
+void printSolution(int startVertex, int distances[], int parents[], int vertices) {
+       printf("Vertex\t Distance\tPath\n");
+
+    for (int vertexIndex = 0; vertexIndex < vertices; vertexIndex++) {
+        if (vertexIndex != startVertex) {
+            printf("%d -> %d \t\t %d\t\t", startVertex, vertexIndex, distances[vertexIndex]);
+            printPath(vertexIndex, parents);
+            printf("\n");
+        }
+    }
+}
+
+// Function that implements Dijkstra's single source shortest path algorithm for a graph represented using adjacency matrix representation
+void dijkstra(int **adjacencyMatrix, int startVertex, int vertices) {
+    int *shortestDistances = (int *)malloc(vertices * sizeof(int));
+    bool *added = (bool *)malloc(vertices * sizeof(bool));
+    int *parents = (int *)malloc(vertices * sizeof(int));
+
+    for (int vertexIndex = 0; vertexIndex < vertices; vertexIndex++) {
+        shortestDistances[vertexIndex] = INT_MAX;
+        added[vertexIndex] = false;
+    }
+
+    shortestDistances[startVertex] = 0;
+    parents[startVertex] = NO_PARENT;
+
+    for (int i = 1; i < vertices; i++) {
+        int nearestVertex = -1;
+        int shortestDistance = INT_MAX;
+
+        for (int vertexIndex = 0; vertexIndex < vertices; vertexIndex++) {
+            if (!added[vertexIndex] && shortestDistances[vertexIndex] < shortestDistance) {
+                nearestVertex = vertexIndex;
+                shortestDistance = shortestDistances[vertexIndex];
+            }
+        }
+
+        added[nearestVertex] = true;
+
+        for (int vertexIndex = 0; vertexIndex < vertices; vertexIndex++) {
+            int edgeDistance = adjacencyMatrix[nearestVertex][vertexIndex];
+
+            if (edgeDistance > 0 && (shortestDistance + edgeDistance) < shortestDistances[vertexIndex]) {
+                parents[vertexIndex] = nearestVertex;
+                shortestDistances[vertexIndex] = shortestDistance + edgeDistance;
+            }
+        }
+    }
+
+    printSolution(startVertex, shortestDistances, parents, vertices);
+
+    free(shortestDistances);
+    free(added);
+    free(parents);
+}
+
+// Function to search for a company by name using Knuth-Morris-Pratt algorithm
+int kmpSearchCompany(const char* companyName, struct ElectricityCompany companies[], int n) {
+    for (int i = 0; i < n; i++) {
+        int result = kmpSearch(companies[i].name, companyName);
+        if (result != -1) {
+            return i;  // Return the index of the found company
+        }
+    }
+    return -1;  // Return -1 if the company is not found
+}
+
+// Function to register and handle complaints against electricity companies
+void handleComplaints() {
+    int nComplaints;
+
+    // Read the number of customers who want to register their complaint
+    printf("\nEnter the number of customers who want to register their complaint: ");
+    scanf("%d", &nComplaints);
+
+    if (nComplaints <= 0) {
+        printf("Invalid number of complaints.\n");
+        return;
+    }
+
+    struct Complaint complaints[nComplaints];
+    int complaintCount[MAX_NODES] = {0};  // To keep track of the number of complaints against each company
+
+    // Read information for each complaint
+    for (int i = 0; i < nComplaints; i++) {
+        printf("\nEnter details for Complaint %d:\n", i + 1);
+        printf("Customer Name: ");
+        scanf("%s", complaints[i].customerName);
+        printf("Complaint: ");
+        scanf(" %[^\n]s", complaints[i].complaint);  // Read the complaint as a string with spaces
+        printf("Electricity Company Name: ");
+        scanf("%s", complaints[i].companyName);
+
+        // Process the complaint and check if the license needs to be canceled
+        int companyIndex = kmpSearchCompany(complaints[i].companyName, companies, MAX_NODES);
+        if (companyIndex != -1) {
+            complaintCount[companyIndex]++;
+            printf("Complaint registered successfully.\n");
+
+            // Check if the number of complaints against the company exceeds the threshold
+            if (complaintCount[companyIndex] > MAX_COMPLAINTS) {
+                printf("License of company %s canceled due to excessive complaints.\n", complaints[i].companyName);
+                // Additional logic to cancel the license goes here
+            }
+        } else {
+            printf("Invalid company name. Complaint not registered.\n");
+        }
+    }
+}
+
+// Knuth-Morris-Pratt algorithm for string search
+int kmpSearch(const char* text, const char* pattern) {
+    int m = strlen(pattern);
+    int n = strlen(text);
+
+    int lps[m];
+    computeLPSArray(pattern, m, lps);
+
+    int i = 0;
+    int j = 0;
+
+    while (i < n) {
+        if (pattern[j] == text[i]) {
+            j++;
+            i++;
+        }
+
+        if (j == m) {
+            return i - j; // Pattern found at index (i-j) in the text
+        } else if (i < n && pattern[j] != text[i]) {
+            if (j != 0)
+                j = lps[j - 1];
+            else
+                i++;
+        }
+    }
+
+    return -1; // Pattern not found in the text
+}
+
+// Function to compute the Longest Prefix Suffix (LPS) array for KMP algorithm
+void computeLPSArray(const char* pattern, int m, int lps[]) {
+    int len = 0;
+    int i = 1;
+    lps[0] = 0;
+
+    while (i < m) {
+        if (pattern[i] == pattern[len]) {
+            len++;
+            lps[i] = len;
+            i++;
+        } else {
+            if (len != 0) {
+                len = lps[len - 1];
+            } else {
+                lps[i] = 0;
+                i++;
+            }
+        }
+    }
+}
+
+int main() {
+    int n, nCities, np, p, t;
+
+    printf("Enter the number of electricity companies: ");
+    scanf("%d", &n);
+    readData(companies, n);
+    printf("\nEnter the number of cities: ");
+    scanf("%d", &nCities);
+    struct City cities[nCities];
+    readCityData(cities, nCities);
+    struct Graph* cityGraphs[nCities];
+
+    for (int k = 0; k < nCities; k++) {
+        printf("Enter the number of Transformers to be installed in City %d:\n", k + 1);
+        scanf("%d", &t);
+
+        // Create a graph for the current city
+        cityGraphs[k] = createGraph(t);
+
+        printf("Enter the adjacency matrix:\n");
+        for (int i = 0; i < t; i++) {
+            for (int j = 0; j < t; j++) {
+                scanf("%d", &cityGraphs[k]->adjacencyMatrix[i][j]);
+            }
+        }
+
+        int startVertex;
+        printf("Enter the starting vertex for DFS traversal in City %d: ", k + 1);
+        scanf("%d", &startVertex);
+
+        dfsTraversal(cityGraphs[k], startVertex);
+
+        // Perform Dijkstra's algorithm for the current city
+        printf("\nEnter the number of localities in City %d: ", k + 1);
+        scanf("%d", &np);
+
+        int **localityGraph = (int **)malloc(np * sizeof(int *));
+        for (int i = 0; i < np; i++) {
+            localityGraph[i] = (int *)malloc(np * sizeof(int));
+        }
+
+        printf("Enter the adjacency matrix for localities:\n");
+        for (int i = 0; i < np; i++) {
+            for (int j = 0; j < np; j++) {
+                scanf("%d", &localityGraph[i][j]);
+            }
+        }
+
+        printf("Enter the starting locality for Dijkstra's algorithm in City %d: ", k + 1);
+        scanf("%d", &startVertex);
+
+        dijkstra(localityGraph, startVertex, np);
+
+        // Free memory for localityGraph
+        for (int i = 0; i < np; i++) {
+            free(localityGraph[i]);
+        }
+        free(localityGraph);
+    }
+
+    // Handle complaints against electricity companies
+    handleComplaints();
+
+    // Free memory for cityGraphs
+    for (int i = 0; i < nCities; i++) {
+        freeGraph(cityGraphs[i]);
+    }
+
+    return 0;
+}
+
